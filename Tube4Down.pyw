@@ -317,14 +317,39 @@ class YTDownloader(Qt.QMainWindow):
             self.format = self.settings["format"]
             self.file_name = self.settings["file_name"]
             self.save_path = self.settings["save_path"]
+        
+        def download(self):
+            """Download the video or audio with the desired settings"""
             self.download_base_files()
             self.convert_file()
         
         def download_base_files(self):
-            """Download the files (video and/or audio) with the default format in the cache (webp/#TODO for video, #TODO for audio)"""
+            """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
+            # finding the best stream for the used settings
+            # choosing the required resolution quality
             if self.type == "video":
-                video_instances = self.video.streams.filter(adaptive=True).filter(mime_type="video/webm")  #TODO not every video is available in webm
-                #TODO
+                self.video_instances = self.video.streams.filter(adaptive=True, type="video")
+                quality_index = self.qualities.index(self.quality)
+                self.quality_ranked = [self.qualities[quality_index]] + self.qualities[quality_index+1:] + self.qualities[:quality_index][::-1]  # ordered list of qualities, preffering the first available one
+                for quality in self.quality_ranked:
+                    self.video_instances_quality = self.video_instances.filter(res=quality)
+                    if self.video_instances_quality:
+                        self.used_quality = quality
+                        break
+                # choosing the best refresh rate
+                self.video_instance = self.video_instances_quality.order_by("fps").last()
+                # getting the file type
+                self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
+                # download the video
+                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
+            
+            if self.type == "audio" or self.has_audio:
+                # choosing the best audio quality
+                self.audio_instances = self.video.streams.filter(adaptive=True, type="audio").order_by("abr")
+                self.audio_instance = self.audio_instances.last()
+                self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
+                # download the audio
+                self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
 
         def convert_file(self):
             """If needed, convert the file to the desired format and move it to the save path"""
@@ -681,7 +706,7 @@ if __name__ == "__main__":
         if os.name == "posix":  # if the system is some sort of linux
             os.system("chmod -R 777 cache")  # get full permissions to the cache folder
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"  # set the environment variable for the web engine
-        YTDownloader.Downloader("CFhSW_-SVhg", "video", {"quality":"1080p", "has_audio":True, "format":"mp4", "file_name":"test_video", "save_path":"C:\\Users\\ilwan\\Downloads"}) #TODO test
+        YTDownloader.Downloader("WO2b03Zdu4Q", "video", {"quality":"2160p", "has_audio":True, "format":"mp4", "file_name":"test_video", "save_path":"C:\\Users\\ilwan\\Downloads"}).download() #TODO test
         App = Qt.QApplication(sys.argv)  # creating the app
         Window = YTDownloader()  # creating the GUI
         Window.start()  # starting the GUI
