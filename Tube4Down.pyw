@@ -61,8 +61,14 @@ class YTDownloader(Qt.QMainWindow):
                     if self.video_instances_quality:
                         self.used_quality = quality
                         break
-                # choosing the best refresh rate
-                self.video_instance = self.video_instances_quality.order_by("fps").last()
+                # choosing the best refresh rate, if possible with the wanted format
+                self.video_instances_quality = self.video_instances_quality.order_by("fps").desc()
+                best_fps = self.video_instances_quality.first().fps
+                self.video_instances_quality = self.video_instances_quality.filter(fps=best_fps)
+                if self.video_instances_quality.filter(mime_type=f"video/{self.format}"):
+                    self.video_instance = self.video_instances_quality.filter(mime_type=f"video/{self.format}").first()
+                else:
+                    self.video_instance = self.video_instances_quality.first()
                 # getting the file type
                 self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
                 # download the video
