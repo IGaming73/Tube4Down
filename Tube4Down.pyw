@@ -33,13 +33,13 @@ class YTDownloader(Qt.QMainWindow):
             self.settings = settings
             if self.type == "video":
                 self.quality = self.settings["quality"]
-                if self.quality == "Max":
+                if self.quality.lower() == "max":
                     self.quality = self.qualities[0]
                 self.has_audio = self.settings["has_audio"]
             else:
                 self.quality = None
                 self.has_audio = None
-            self.format = self.settings["format"]
+            self.format = self.settings["format"].lower()
             self.file_name = self.settings["file_name"]
             self.save_path = self.settings["save_path"]
         
@@ -77,10 +77,41 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
 
         def convert_file(self):
-            """If needed, convert the file to the desired format and move it to the save path"""
-            pass
-    
+            """If needed, convert the file to the desired format, merge audio and video, and move it to the save path"""
+            ffmpeg_path = "ffmpeg\\ffmpeg.exe"  # path to the ffmpeg executable
+            if self.type == "video":
+                # convert the video to the desired format
+                if self.video_instance_file_type != self.format:
+                    os.system(f"{ffmpeg_path} -i cache\\videos\\{self.video_id}.{self.video_instance_file_type} cache\\videos\\{self.video_id}.{self.format}")
+                    os.remove(f"cache\\videos\\{self.video_id}.{self.video_instance_file_type}")
+            if self.type == "audio" or self.has_audio:
+                # convert the audio to the desired format
+                if self.audio_instance_file_type != self.format:
+                    os.system(f"{ffmpeg_path} -i cache\\audios\\{self.video_id}.{self.audio_instance_file_type} cache\\audios\\{self.video_id}.{self.format}")
+                    os.remove(f"cache\\audios\\{self.video_id}.{self.audio_instance_file_type}")
             
+            if self.has_audio:
+                # merge the audio and video
+                os.system(f"{ffmpeg_path} -i cache\\videos\\{self.video_id}.{self.format} -i cache\\audios\\{self.video_id}.{self.format} -c copy cache\\media\\{self.video_id}.{self.format}")
+                os.remove(f"cache\\videos\\{self.video_id}.{self.format}")
+                os.remove(f"cache\\audios\\{self.video_id}.{self.format}")
+            
+            # get the cache path of the file to move
+            cache_file_name = f"{self.video_id}.{self.format}"
+            if self.type == "audio":
+                output = f"cache\\audios\\{cache_file_name}"
+            elif self.has_audio:
+                output = f"cache\\media\\{cache_file_name}"
+            else:
+                output = f"cache\\videos\\{cache_file_name}"
+            
+            # make sure the file name is not already taken
+            while os.path.exists(f"{self.save_path}\\{self.file_name}.{self.format}"):
+                self.file_name += "_"
+            # rename and move the file to the final save path
+            os.rename(output, f"{self.save_path}\\{self.file_name}.{self.format}")
+    
+    
     class VideoInfos(Qt.QWidget):
         """Widget displaying video information and live preview with a checkbox to select it"""
 
@@ -704,7 +735,7 @@ def create_cache():
     """creates the cache folder if it doesn't exist"""
     if not os.path.exists("cache"):
         os.makedirs("cache")
-    for folder in ["videos", "audios", "thumbnails", "channel_icons"]:
+    for folder in ["videos", "audios", "media", "thumbnails", "channel_icons"]:
         if not os.path.exists(f"cache/{folder}"):
             os.makedirs(f"cache/{folder}")
 
@@ -715,7 +746,7 @@ if __name__ == "__main__":
         if os.name == "posix":  # if the system is some sort of linux
             os.system("chmod -R 777 cache")  # get full permissions to the cache folder
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"  # set the environment variable for the web engine
-        YTDownloader.Downloader("WO2b03Zdu4Q", "video", {"quality":"2160p", "has_audio":True, "format":"mp4", "file_name":"test_video", "save_path":"C:\\Users\\ilwan\\Downloads"}).download() #TODO test
+        YTDownloader.Downloader("WO2b03Zdu4Q", "video", {"quality":"1440p", "has_audio":True, "format":"mkv", "file_name":"test_video", "save_path":"C:\\Users\\ilwan\\Downloads"}).download() #TODO test
         App = Qt.QApplication(sys.argv)  # creating the app
         Window = YTDownloader()  # creating the GUI
         Window.start()  # starting the GUI
