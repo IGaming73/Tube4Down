@@ -700,8 +700,17 @@ def clear_cache():
         try: os.remove(f)
         except: pass
 
+def create_cache():
+    """creates the cache folder if it doesn't exist"""
+    if not os.path.exists("cache"):
+        os.makedirs("cache")
+    for folder in ["videos", "audios", "thumbnails", "channel_icons"]:
+        if not os.path.exists(f"cache/{folder}"):
+            os.makedirs(f"cache/{folder}")
+
 if __name__ == "__main__":
     #try:
+        create_cache()
         clear_cache()
         if os.name == "posix":  # if the system is some sort of linux
             os.system("chmod -R 777 cache")  # get full permissions to the cache folder
