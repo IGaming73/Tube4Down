@@ -20,6 +20,67 @@ import io  # byte handling for images
 class YTDownloader(Qt.QMainWindow):
     """YouTube video downloader with GUI"""
 
+    class Downloader():
+        """Class containing all the needed functions to download a video or audio with the desired settings"""
+
+        def __init__(self, video_id:str, type:str, settings:dict):
+            """the type can be "video" or "audio" and the settings are the video quality, if there is audio, the format, the file name and the save path"""
+            self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+            self.video_id = video_id
+            self.video = pytube.YouTube.from_id(self.video_id)
+
+            self.type = type
+            self.settings = settings
+            if self.type == "video":
+                self.quality = self.settings["quality"]
+                if self.quality == "Max":
+                    self.quality = self.qualities[0]
+                self.has_audio = self.settings["has_audio"]
+            else:
+                self.quality = None
+                self.has_audio = None
+            self.format = self.settings["format"]
+            self.file_name = self.settings["file_name"]
+            self.save_path = self.settings["save_path"]
+        
+        def download(self):
+            """Download the video or audio with the desired settings"""
+            self.download_base_files()
+            self.convert_file()
+        
+        def download_base_files(self):
+            """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
+            # finding the best stream for the used settings
+            # choosing the required resolution quality
+            if self.type == "video":
+                self.video_instances = self.video.streams.filter(adaptive=True, type="video")
+                quality_index = self.qualities.index(self.quality)
+                self.quality_ranked = [self.qualities[quality_index]] + self.qualities[quality_index+1:] + self.qualities[:quality_index][::-1]  # ordered list of qualities, preffering the first available one
+                for quality in self.quality_ranked:
+                    self.video_instances_quality = self.video_instances.filter(res=quality)
+                    if self.video_instances_quality:
+                        self.used_quality = quality
+                        break
+                # choosing the best refresh rate
+                self.video_instance = self.video_instances_quality.order_by("fps").last()
+                # getting the file type
+                self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
+                # download the video
+                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
+            
+            if self.type == "audio" or self.has_audio:
+                # choosing the best audio quality
+                self.audio_instances = self.video.streams.filter(adaptive=True, type="audio").order_by("abr")
+                self.audio_instance = self.audio_instances.last()
+                self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
+                # download the audio
+                self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
+
+        def convert_file(self):
+            """If needed, convert the file to the desired format and move it to the save path"""
+            pass
+    
+            
     class VideoInfos(Qt.QWidget):
         """Widget displaying video information and live preview with a checkbox to select it"""
 
@@ -293,67 +354,6 @@ class YTDownloader(Qt.QMainWindow):
             self.preview = YTDownloader.DownloadInfos(self.video_id)  # create a download infos widget
             self.preview.get_data()  # load the required data for the widget
             self.finished.emit(self.preview)  # send the finished signal with the widget which will have every required data already loaded
-    
-
-    class Downloader():
-        """Class containing all the needed functions to download a video or audio with the desired settings"""
-
-        def __init__(self, video_id:str, type:str, settings:dict):
-            """the type can be "video" or "audio" and the settings are the video quality, if there is audio, the format, the file name and the save path"""
-            self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
-            self.video_id = video_id
-            self.video = pytube.YouTube.from_id(self.video_id)
-
-            self.type = type
-            self.settings = settings
-            if self.type == "video":
-                self.quality = self.settings["quality"]
-                if self.quality == "Max":
-                    self.quality = self.qualities[0]
-                self.has_audio = self.settings["has_audio"]
-            else:
-                self.quality = None
-                self.has_audio = None
-            self.format = self.settings["format"]
-            self.file_name = self.settings["file_name"]
-            self.save_path = self.settings["save_path"]
-        
-        def download(self):
-            """Download the video or audio with the desired settings"""
-            self.download_base_files()
-            self.convert_file()
-        
-        def download_base_files(self):
-            """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
-            # finding the best stream for the used settings
-            # choosing the required resolution quality
-            if self.type == "video":
-                self.video_instances = self.video.streams.filter(adaptive=True, type="video")
-                quality_index = self.qualities.index(self.quality)
-                self.quality_ranked = [self.qualities[quality_index]] + self.qualities[quality_index+1:] + self.qualities[:quality_index][::-1]  # ordered list of qualities, preffering the first available one
-                for quality in self.quality_ranked:
-                    self.video_instances_quality = self.video_instances.filter(res=quality)
-                    if self.video_instances_quality:
-                        self.used_quality = quality
-                        break
-                # choosing the best refresh rate
-                self.video_instance = self.video_instances_quality.order_by("fps").last()
-                # getting the file type
-                self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
-                # download the video
-                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
-            
-            if self.type == "audio" or self.has_audio:
-                # choosing the best audio quality
-                self.audio_instances = self.video.streams.filter(adaptive=True, type="audio").order_by("abr")
-                self.audio_instance = self.audio_instances.last()
-                self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
-                # download the audio
-                self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
-
-        def convert_file(self):
-            """If needed, convert the file to the desired format and move it to the save path"""
-            pass
 
     
 
