@@ -4,6 +4,7 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 import PyQt5.QtWebEngineWidgets as QtWeb  # web interface
 from PyQt5.QtCore import QThread, pyqtSignal  # threading
+import tkinter as tk  # file dialog
 from PIL import Image  # image handling
 from bs4 import BeautifulSoup  # HTML parsing
 import threading as thr  # threading
@@ -20,17 +21,28 @@ import io  # byte handling for images
 class YTDownloader(Qt.QMainWindow):
     """YouTube video downloader with GUI"""
 
-    class Downloader():
+    class Downloader(QThread):
         """Class containing all the needed functions to download a video or audio with the desired settings"""
+        size = pyqtSignal(int)  # signal to send the total file size in bytes (audio + video if needed)
+        progress = pyqtSignal(int)  # signal to send the download progress in remaining bytes
+        converting = pyqtSignal()  # signal to send when the file is being converted
+        finished = pyqtSignal()  # signal to send when the download is finished
 
-        def __init__(self, video_id:str, type:str, settings:dict):
-            """the type can be "video" or "audio" and the settings are the video quality, if there is audio, the format, the file name and the save path"""
-            self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+        def __init__(self, video_id:str, media_type:str, settings:dict, measure_size:bool=False):
+            """the type can be "video" or "audio" and the settings are the video quality, if there is audio, the format, the file name and the save path, use measure_size to get the total file size and not download anything"""
+            super().__init__()
             self.video_id = video_id
-            self.video = pytube.YouTube.from_id(self.video_id)
-
-            self.type = type
+            self.type = media_type
             self.settings = settings
+            self.measure_size = measure_size
+
+        def start(self):
+            """start the download process"""
+            self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+            self.video_url = f"https://www.youtube.com/watch?v={self.video_id}"
+            self.total_size = 0  # total file size in bytes
+            self.video = pytube.YouTube(self.video_url, on_progress_callback=lambda stream, data, remaining: self.progress.emit(remaining))  # video object
+
             if self.type == "video":
                 self.quality = self.settings["quality"]
                 if self.quality.lower() == "max":
@@ -42,16 +54,18 @@ class YTDownloader(Qt.QMainWindow):
             self.format = self.settings["format"].lower()
             self.file_name = self.settings["file_name"]
             self.save_path = self.settings["save_path"]
+            self.download()
         
         def download(self):
             """Download the video or audio with the desired settings"""
-            self.download_base_files()
-            self.convert_file()
+            self.get_best_streams()
+            if not self.measure_size:  # if we want to download the file
+                self.download_base_files()
+                self.convert_file()
         
-        def download_base_files(self):
-            """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
-            # finding the best stream for the used settings
-            # choosing the required resolution quality
+        def get_best_streams(self):
+            """determine the best data streams depending on the quality and format settings"""
+            # finding the best stream for the used settings and choosing the required resolution quality
             if self.type == "video":
                 self.video_instances = self.video.streams.filter(adaptive=True, type="video")
                 quality_index = self.qualities.index(self.quality)
@@ -71,19 +85,29 @@ class YTDownloader(Qt.QMainWindow):
                     self.video_instance = self.video_instances_quality.first()
                 # getting the file type
                 self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
-                # download the video
-                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
+                self.total_size += self.video_instance.filesize
             
             if self.type == "audio" or self.has_audio:
                 # choosing the best audio quality
                 self.audio_instances = self.video.streams.filter(adaptive=True, type="audio").order_by("abr")
                 self.audio_instance = self.audio_instances.last()
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
+                self.total_size += self.audio_instance.filesize
+            
+            self.size.emit(self.total_size)  # send the total file size to the main thread
+        
+        def download_base_files(self):
+            """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
+            if self.type == "video":
+                # download the video
+                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
+            if self.type == "audio" or self.has_audio:
                 # download the audio
                 self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
 
         def convert_file(self):
             """If needed, convert the file to the desired format, merge audio and video, and move it to the save path"""
+            self.converting.emit()  # send the converting signal to the main thread
             ffmpeg_path = "ffmpeg\\ffmpeg.exe"  # path to the ffmpeg executable
             if self.type == "video":
                 # convert the video to the desired format
@@ -116,6 +140,7 @@ class YTDownloader(Qt.QMainWindow):
                 self.file_name += "_"
             # rename and move the file to the final save path
             os.rename(output, f"{self.save_path}\\{self.file_name}.{self.format}")
+            self.finished.emit()  # send the finished signal to the main thread
     
     
     class VideoInfos(Qt.QWidget):
@@ -397,7 +422,7 @@ class YTDownloader(Qt.QMainWindow):
     def test(self):
         """video_id = "WO2b03Zdu4Q"
         url = f"https://www.youtube.com/watch?v={video_id}"  # short 4K 60fps video
-        yt = pytube.YouTube(url, on_progress_callback=on_progress)
+        yt = pytube.YouTube(url, on_progress_callback=lambda *args: print(args[2]))
         video = yt.streams.filter(adaptive=True).filter(mime_type='video/webm').first()  # no sound, up to 4K, webm file
         video.download("cache")"""
         pass
@@ -621,7 +646,38 @@ class YTDownloader(Qt.QMainWindow):
         self.search_button.clicked.connect(self.search_video)  # search when clicking the search button
         self.add_video_field.returnPressed.connect(self.add_video_from_url)  # add a video when pressing enter in the add video field
         self.add_video_button.clicked.connect(self.add_video_from_url)  # add a video when clicking the add video button
-
+        self.download_button.clicked.connect(self.download_selected_videos)  # download the selected videos when clicking the download button
+    
+    def download_selected_videos(self):
+        """downloads the selected videos with the selected settings after asking for the save folder"""
+        if not self.selected_videos:
+            return
+        self.save_path = tk.filedialog.askdirectory()  # ask for the save folder
+        if not self.save_path:
+            return
+        
+        if self.settings_tab.currentIndex() == 0:
+            self.type = "video"
+            self.settings = {
+                "quality": self.settings_video_quality.checkedButton().text(),
+                "has_audio": self.settings_video_hasAudio.isChecked(),
+                "format": self.settings_video_format.checkedButton().text().lower(),
+                "file_name": "",
+                "save_path": self.save_path
+            }
+        else:
+            self.type = "audio"
+            self.settings = {
+                "format": self.settings_audio_format.checkedButton().text().lower(),
+                "file_name": "",
+                "save_path": self.save_path
+            }
+        self.create_download_window()
+    
+    def create_download_window(self):
+        """Create the window to indicate the download progress"""
+        pass
+    
     def add_video_from_url(self):
         """adds a video from the URL in the add video field"""
         url = self.add_video_field.text()
@@ -752,9 +808,9 @@ if __name__ == "__main__":
         if os.name == "posix":  # if the system is some sort of linux
             os.system("chmod -R 777 cache")  # get full permissions to the cache folder
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"  # set the environment variable for the web engine
-        YTDownloader.Downloader("WO2b03Zdu4Q", "video", {"quality":"1440p", "has_audio":True, "format":"mkv", "file_name":"test_video", "save_path":"C:\\Users\\ilwan\\Downloads"}).download() #TODO test
         App = Qt.QApplication(sys.argv)  # creating the app
         Window = YTDownloader()  # creating the GUI
+        Window.test()
         Window.start()  # starting the GUI
         App.exec_()  # executing the app
     #except Exception as error:
