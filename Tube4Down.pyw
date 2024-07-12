@@ -113,7 +113,6 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance = self.audio_instances.last()
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
                 self.total_size += self.audio_instance.filesize
-            return self.total_size
         
         def download_base_files(self):
             """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
@@ -633,21 +632,6 @@ class YTDownloader(Qt.QMainWindow):
         self.add_video_button.setIcon(QtGui.QIcon("assets/add.png"))
         self.add_video_layout.addWidget(self.add_video_button)
 
-        self.file_size_widget = Qt.QWidget()
-        self.file_size_layout = Qt.QHBoxLayout()
-        self.file_size_widget.setLayout(self.file_size_layout)
-        self.download_button_layout.addWidget(self.file_size_widget)
-
-        self.file_size_text_label = Qt.QLabel("Taille totale :")
-        self.file_size_text_label.setFont(QtGui.QFont("Arial", 16))
-        self.file_size_layout.addWidget(self.file_size_text_label)
-
-        self.file_size_label = Qt.QLabel(self.standard_size(0))
-        self.file_size_label.setFont(QtGui.QFont("Arial", 16))
-        self.file_size_layout.addWidget(self.file_size_label)
-
-        self.file_size_layout.addStretch()
-
         self.download_button = Qt.QPushButton("Télécharger")
         self.download_button.setFixedHeight(50)
         self.download_button.setFont(QtGui.QFont("Arial", 20))
@@ -660,52 +644,12 @@ class YTDownloader(Qt.QMainWindow):
         self.selected_videos = []  # ids of the selected videos
         self.total_file_size = 0  # total size of the selected videos in bytes
         self.search_display_thread = None  # thread to display the search results
-        self.type = "video"  # original type of media to download
-        self.settings = {
-            "quality": "max",
-            "has_audio": True,
-            "format": "mp4",
-            "file_name": None,
-            "save_path": None
-        }  # original settings for the media
 
         self.searchbar.returnPressed.connect(self.search_video)  # search when pressing enter
         self.search_button.clicked.connect(self.search_video)  # search when clicking the search button
         self.add_video_field.returnPressed.connect(self.add_video_from_url)  # add a video when pressing enter in the add video field
         self.add_video_button.clicked.connect(self.add_video_from_url)  # add a video when clicking the add video button
         self.download_button.clicked.connect(self.download_selected_videos)  # download the selected videos when clicking the download button
-        self.settings_tab.currentChanged.connect(self.update_media_type)  # update the video type when changing the settings tab
-        # updates to the settings
-        self.video_hasAudio_box.clicked.connect(self.update_media_settings)
-        self.settings_video_quality.buttonClicked.connect(self.update_media_settings)
-        self.settings_video_format.buttonClicked.connect(self.update_media_settings)
-        self.settings_audio_format.buttonClicked.connect(self.update_media_settings)
-    
-    def update_media_type(self):
-        """update the media type when changing the settings tab"""
-        if self.settings_tab.currentIndex() == 0:
-            self.type = "video"
-        else:
-            self.type = "audio"
-        self.update_media_settings()
-    
-    def update_media_settings(self):
-        """update the media settings when changing the media type"""
-        if self.type == "video":
-            self.settings = {
-                "quality": self.settings_video_quality.checkedButton().text(),
-                "has_audio": self.settings_video_hasAudio.isChecked(),
-                "format": self.settings_video_format.checkedButton().text().lower(),
-                "file_name": None,
-                "save_path": None
-            }
-        else:
-            self.settings = {
-                "format": self.settings_audio_format.checkedButton().text().lower(),
-                "file_name": None,
-                "save_path": None
-            }
-        self.update_size(self.selected_videos, recalculate=True)
     
     def download_selected_videos(self):
         """downloads the selected videos with the selected settings after asking for the save folder"""
@@ -737,19 +681,6 @@ class YTDownloader(Qt.QMainWindow):
         """Create the window to indicate the download progress"""
         self.download_window = self.DownloadWindow(self.selected_videos, self.type, self.settings)
     
-    def update_size(self, video, modif:str=None, recalculate:bool=False):
-        """Modifies the total size with the label, video is the id or a list of ids if recalculating, modif is if the video was "added" or "removed" to avoid calculating the entire size again"""
-        if recalculate:
-            self.total_file_size = 0
-            for video_id in video:
-                self.total_file_size += self.get_video_size(video_id)
-        else:
-            if modif == "added":
-                self.total_file_size += self.get_video_size(video)
-            elif modif == "removed":
-                self.total_file_size -= self.get_video_size(video)
-        self.file_size_label.setText(self.standard_size(self.total_file_size))
-    
     def get_video_size(self, video_id:str) -> int:
         """returns the size of the video in bytes"""
         return self.Downloader(video_id, self.type, self.settings).get_best_streams()
@@ -763,7 +694,6 @@ class YTDownloader(Qt.QMainWindow):
                 video_id = yt.video_id
                 self.video_add(video_id)
                 self.add_video_field.clear()
-                self.update_size(video_id, "added")
             except (pytube.exceptions.RegexMatchError, pytube.exceptions.VideoUnavailable):
                 self.add_video_field.clear()
     
@@ -819,7 +749,6 @@ class YTDownloader(Qt.QMainWindow):
         if video_id not in self.selected_videos:
             self.selected_videos.append(video_id)  # add the video id to the selected videos list
             self.add_download_preview(video_id)  # add the video preview to the download list
-            self.update_size(video_id, "added")
     
     def add_download_preview(self, video_id:str):
         """adds a video preview to the download list"""
@@ -843,7 +772,6 @@ class YTDownloader(Qt.QMainWindow):
                 if widget and widget.video_id == video_id:
                     self.download_list_layout.removeWidget(widget)
                     widget.deleteLater()
-        self.update_size(video_id, "removed")
     
     def standard_size(self, size:int) -> str:
         """converts a size in bytes to a human readable size"""
