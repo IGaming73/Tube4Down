@@ -24,10 +24,13 @@ class YTDownloader(Qt.QMainWindow):
     class DownloadWindow(Qt.QWidget):
         """Window displaying the download progress"""
         
-        def __init__(self, to_download:list, type:str, settings:dict):
-            self.to_download = to_download  # list of video ids to download
+        def __init__(self, to_download:dict, type:str, settings:dict):
+            self.to_download = to_download  # dictionary of video ids to download in the form {video_id: file_name}
+            self.video_ids = list(self.to_download.keys())  # list of video ids
+            self.video_file_names = list(self.to_download.values())  # list of file names
             self.type = type  # type of media to download (video or audio)
             self.settings = settings  # settings for the download
+            self.video_index = -1  # current video index starting at 0 (-1 for initialization)
             super().__init__()  # initialize the window
             self.setWindowTitle("Téléchargement")  # set the window title
             self.setWindowIcon(QtGui.QIcon("assets/download.png"))  # set the window icon
@@ -36,8 +39,67 @@ class YTDownloader(Qt.QMainWindow):
 
         def build_ui(self):
             """build the UI and elements"""
-            #TODO
-            pass
+            self.main_layout = Qt.QVBoxLayout()
+            self.setLayout(self.main_layout)
+
+            self.download_label = Qt.QLabel("Initialisation du téléchargement ...")
+            self.download_label.setFont(QtGui.QFont("Arial", 20))
+            self.download_label.setAlignment(QtCore.Qt.AlignCenter)
+            self.main_layout.addWidget(self.download_label)
+
+            self.progress_bar = Qt.QProgressBar()
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFont(QtGui.QFont("Arial", 16))
+            self.main_layout.addWidget(self.progress_bar)
+
+            self.bottom_info_widget = Qt.QWidget()
+            self.bottom_info_layout = Qt.QHBoxLayout()
+            self.bottom_info_widget.setLayout(self.bottom_info_layout)
+            self.bottom_info_widget.setFont(QtGui.QFont("Arial", 16))
+            self.main_layout.addWidget(self.bottom_info_widget)
+
+            self.file_number_label = Qt.QLabel(str(self.video_index+1))
+            self.file_number_total_label = Qt.QLabel(f"/ {len(self.to_download)}")
+            self.bottom_info_layout.addWidget(self.file_number_label)
+            self.bottom_info_layout.addWidget(self.file_number_total_label)
+
+            self.bottom_info_layout.addStretch()
+
+            self.bytes_progress_label = Qt.QLabel("0 o")
+            self.bytes_total_label = Qt.QLabel("/ 0 o")
+            self.bottom_info_layout.addWidget(self.bytes_progress_label)
+            self.bottom_info_layout.addWidget(self.bytes_total_label)
+            self.bottom_info_widget.setFont(QtGui.QFont("Arial", 16))
+        
+        def download(self):
+            """download one video at a time and call itself for each video in the list"""
+            self.video_index += 1
+            if self.video_index >= len(self.to_download):
+                self.close()
+                return
+            video_id = self.video_ids[self.video_index]
+            file_name = self.video_file_names[self.video_index]
+            self.file_number_label.setText(str(self.video_index+1))
+            self.settings["file_name"] = file_name
+            self.video = YTDownloader.Downloader(video_id, self.type, self.settings)
+            self.video.get_best_streams()
+            self.file_size = self.video.total_size
+            self.bytes_total_label.setText(f"/ {YTDownloader.standard_size(self, self.file_size)}")
+            self.download_label.setText(f"Téléchargement de '{file_name}' ...")
+            self.progress_bar.setMaximum(self.file_size)
+            self.video.progress.connect(self.update_infos)
+            self.video.converting.connect(self.converting)
+            self.video.finished.connect(self.download)
+            self.video.start()
+
+        def update_infos(self, remaining:int):
+            """update the download information such as the progress and the downloaded size in bytes"""
+            self.progress_bar.setValue(self.file_size - remaining)
+            self.bytes_progress_label.setText(YTDownloader.standard_size(self, self.file_size - remaining))
+
+        def converting(self):
+            """update the download information when the file is being converted"""
+            self.download_label.setText(f"Traitement de '{self.video_file_names[self.video_index]}' ...")
     
 
     class Downloader(QThread):
@@ -53,6 +115,7 @@ class YTDownloader(Qt.QMainWindow):
             self.type = media_type
             self.settings = settings
             self.total_size = 0  # total file size in bytes
+            self.found_stream = False  # is the correct stream found yet
 
             self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
             self.video_url = f"https://www.youtube.com/watch?v={self.video_id}"
@@ -75,11 +138,12 @@ class YTDownloader(Qt.QMainWindow):
             self.download()
         
         def emit_progress(self, stream, data_block, remaining_bytes):
-            self.progress.emit(self.total_size - remaining_bytes)
+            self.progress.emit(remaining_bytes)
         
         def download(self):
             """Download the video or audio with the desired settings"""
-            self.get_best_streams()
+            if not self.found_stream:
+                self.get_best_streams()
             self.download_base_files()
             self.convert_file()
         
@@ -113,6 +177,7 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance = self.audio_instances.last()
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
                 self.total_size += self.audio_instance.filesize
+            self.found_stream = True
         
         def download_base_files(self):
             """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
@@ -675,15 +740,23 @@ class YTDownloader(Qt.QMainWindow):
                 "file_name": "",
                 "save_path": self.save_path
             }
-        self.create_download_window()
+        self.init_download_window()
     
-    def create_download_window(self):
-        """Create the window to indicate the download progress"""
-        self.download_window = self.DownloadWindow(self.selected_videos, self.type, self.settings)
-    
-    def get_video_size(self, video_id:str) -> int:
-        """returns the size of the video in bytes"""
-        return self.Downloader(video_id, self.type, self.settings).get_best_streams()
+    def init_download_window(self):
+        """Initialize the download window and starts the downloading process"""
+        self.videos_dict = {}  # {video_id: file_name}
+        self.file_names = []  # list of file names
+        for i in range(self.download_list_layout.count()):
+            item = self.download_list_layout.itemAt(i)
+            if item:
+                widget = item.widget()
+                if widget:
+                    file_name = widget.file_name.text()
+                    self.file_names.append(file_name)
+        for i in range(len(self.selected_videos)):
+            self.videos_dict[self.selected_videos[i]] = self.file_names[i]
+        self.download_window = self.DownloadWindow(self.videos_dict, self.type, self.settings)
+        self.download_window.download()
     
     def add_video_from_url(self):
         """adds a video from the URL in the add video field"""
