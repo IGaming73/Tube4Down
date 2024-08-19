@@ -1,4 +1,4 @@
-import pytube  # interact with YouTube
+import pytubefix as pytube  # interact with YouTube
 import PyQt5.QtWidgets as Qt  # UI
 from PyQt5 import QtCore
 from PyQt5 import QtGui
